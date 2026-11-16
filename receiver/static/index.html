@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pointwise Receiver — Operations</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="dot" id="health-dot"></span>
+    <div>
+      <h1>Pointwise Receiver</h1>
+      <p class="sub">Local sources → credit-gated spool → index worker → hot/cold tiers</p>
+    </div>
+  </div>
+  <div class="top-right">
+    <span class="pill" id="pressure-pill">pressure: —</span>
+    <span class="pill" id="worker-pill">worker: —</span>
+    <button class="ghost" id="refresh-toggle" aria-pressed="true">Auto-refresh: on</button>
+  </div>
+</header>
+
+<main>
+  <section class="grid kpis" aria-label="Headline metrics">
+    <article class="card kpi">
+      <h2>Spool backlog</h2>
+      <div class="big" id="kpi-backlog">—</div>
+      <div class="meter"><span id="meter-spool"></span></div>
+      <p class="muted" id="kpi-backlog-sub">—</p>
+    </article>
+    <article class="card kpi">
+      <h2>Indexed</h2>
+      <div class="big" id="kpi-indexed">—</div>
+      <p class="muted" id="kpi-indexed-sub">batches / records queryable</p>
+    </article>
+    <article class="card kpi">
+      <h2>Index lag</h2>
+      <div class="big" id="kpi-lag">—</div>
+      <p class="muted" id="kpi-lag-sub">oldest unindexed batch age</p>
+    </article>
+    <article class="card kpi">
+      <h2>Worker</h2>
+      <div class="big" id="kpi-worker">—</div>
+      <p class="muted" id="kpi-worker-sub">separate process, independent of API</p>
+    </article>
+  </section>
+
+  <section class="grid two">
+    <article class="card">
+      <div class="card-head">
+        <h2>Throughput & backlog</h2>
+        <span class="muted" id="sample-note"></span>
+      </div>
+      <canvas id="chart" width="900" height="260" aria-label="Spool backlog and indexed records over time"></canvas>
+      <div class="legend">
+        <span><i class="sw a"></i>spool bytes</span>
+        <span><i class="sw b"></i>index lag (s)</span>
+        <span><i class="sw c"></i>indexed records</span>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-head"><h2>Resources</h2></div>
+      <dl class="rows" id="resource-rows"></dl>
+      <div class="bar-label">Spool vs cap</div>
+      <div class="meter tall"><span id="meter-cap"></span><em id="cap-marker"></em></div>
+      <div class="bar-label">Free disk vs floor</div>
+      <div class="meter tall warn"><span id="meter-disk"></span></div>
+      <p class="muted" id="resource-note"></p>
+    </article>
+  </section>
+
+  <section class="grid two">
+    <article class="card">
+      <div class="card-head">
+        <h2>Sources & credit</h2>
+        <span class="muted">credit is recomputed from committed state</span>
+      </div>
+      <div id="sources"></div>
+    </article>
+
+    <article class="card">
+      <div class="card-head">
+        <h2>Fault controls</h2>
+        <span class="muted">these drive the real worker and ingest path</span>
+      </div>
+      <div class="controls">
+        <div class="control">
+          <label for="index-delay">Index delay <output id="index-delay-val">0 ms</output></label>
+          <input type="range" id="index-delay" min="0" max="2000" step="50" value="0">
+        </div>
+        <div class="control">
+          <label for="storage-delay">Storage delay <output id="storage-delay-val">0 ms</output></label>
+          <input type="range" id="storage-delay" min="0" max="2000" step="50" value="0">
+        </div>
+        <div class="control">
+          <label for="spool-cap">Spool cap <output id="spool-cap-val">—</output></label>
+          <input type="range" id="spool-cap" min="262144" max="8388608" step="65536" value="1048576">
+        </div>
+        <div class="btn-row">
+          <button id="btn-worker-stop" class="danger">Stop worker (SIGKILL)</button>
+          <button id="btn-worker-start" class="ok">Start worker</button>
+        </div>
+        <div class="btn-row">
+          <button id="btn-bad" class="warn">Send bad batch</button>
+          <button id="btn-integrity">Run integrity check</button>
+        </div>
+        <div class="btn-row">
+          <button id="btn-pause-alpha" class="ghost">Pause alpha</button>
+          <button id="btn-resume-alpha" class="ghost">Resume alpha</button>
+        </div>
+        <p class="muted" id="control-note"></p>
+      </div>
+    </article>
+  </section>
+
+  <section class="grid two">
+    <article class="card">
+      <div class="card-head">
+        <h2>Backlog queue</h2>
+        <span class="muted">staged → indexing → indexed / quarantine</span>
+      </div>
+      <div class="table-wrap">
+        <table id="queue">
+          <thead><tr><th>seq</th><th>source</th><th>batch</th><th>state</th><th>records</th><th>tries</th><th>note</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-head">
+        <h2>Tiered storage</h2>
+        <span class="muted">hot = per-batch JSON, cold = gzip segments</span>
+      </div>
+      <dl class="rows" id="tier-rows"></dl>
+      <div class="card-head subhead"><h2>Integrity</h2></div>
+      <div id="integrity"></div>
+    </article>
+  </section>
+
+  <section class="grid two">
+    <article class="card">
+      <div class="card-head"><h2>Index preview</h2><span class="muted" id="records-total"></span></div>
+      <div class="table-wrap short">
+        <table id="records">
+          <thead><tr><th>source</th><th>doc id</th><th>value</th><th>batch</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </article>
+    <article class="card">
+      <div class="card-head"><h2>Event log</h2><span class="muted">durable, from SQLite</span></div>
+      <ol class="events" id="events"></ol>
+    </article>
+  </section>
+</main>
+
+<footer>
+  <span>Acknowledgement levels:</span>
+  <code>spool-durable</code> bytes + metadata fsynced ·
+  <code>indexed</code> hot file + index rows committed ·
+  <code>quarantined</code> held, not indexed
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
